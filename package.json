@@ -1,0 +1,29 @@
+{
+  "name": "classement-federale-3",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Demonstration de classement de rugby avec React, Express et PostgreSQL",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "build": "vite build",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^5.3.0",
+    "pg": "^8.23.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.2.0",
+    "pg-mem": "^3.0.14",
+    "vite": "^7.3.7"
+  }
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Logo fictif de l'Union Rugby des Roches</title>
+  <path fill="#bd382f" d="M64 5 112 22v37c0 31-20 51-48 64C36 110 16 90 16 59V22z"/>
+  <path fill="#fff" d="M64 23 98 35v24c0 22-13 37-34 48C43 96 30 81 30 59V35z"/>
+  <path fill="#bd382f" d="M42 43h10v28c0 8 4 12 12 12s12-4 12-12V43h10v29c0 14-8 22-22 22S42 86 42 72z"/>
+</svg>

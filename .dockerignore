@@ -1,0 +1,16 @@
+node_modules
+.git
+.env
+.env.*
+!.env.example
+.private
+deploy.curl
+acces-p*.txt
+backups
+data
+dist
+test
+README.md
+npm-debug.log*
+*.sqlite
+*.sqlite-*

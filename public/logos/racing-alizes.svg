@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Logo fictif du Racing Club des Alizés</title>
+  <path fill="#007f86" d="M64 5 112 22v37c0 31-20 51-48 64C36 110 16 90 16 59V22z"/>
+  <path fill="#fff" d="M29 43c19-20 45-18 68-4-22-5-42 0-58 17 20-8 39-7 58 2-23-1-42 6-57 21 15-3 28 0 41 7-25 1-41-5-52-18z"/>
+  <circle cx="64" cy="64" r="7" fill="#f3c35b"/>
+</svg>

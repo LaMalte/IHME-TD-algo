@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Logo fictif du Sporting des Brumes</title>
+  <path fill="#644596" d="M64 5 112 22v37c0 31-20 51-48 64C36 110 16 90 16 59V22z"/>
+  <path fill="#fff" d="M64 24 97 36v23c0 21-12 36-33 47C43 95 31 80 31 59V36z"/>
+  <path fill="#644596" d="M42 54c0-10 8-17 22-17s22 7 22 17-8 17-22 17-22-7-22-17zm10 0c0 4 5 7 12 7s12-3 12-7-5-7-12-7-12 3-12 7zm-8 24h40v8H44z"/>
+</svg>
