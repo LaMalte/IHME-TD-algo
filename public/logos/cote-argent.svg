@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Logo fictif de la Côte d'Argent Rugby</title>
+  <path fill="#3975b7" d="M64 5 112 22v37c0 31-20 51-48 64C36 110 16 90 16 59V22z"/>
+  <circle cx="64" cy="61" r="27" fill="#e9c85d"/>
+  <path d="M46 63c11-18 25-18 36 0-11 18-25 18-36 0z" fill="#fff"/>
+  <path d="M64 50v26m-8-22 8 6 8-6m-16 16 8-6 8 6" fill="none" stroke="#3975b7" stroke-width="3"/>
+</svg>

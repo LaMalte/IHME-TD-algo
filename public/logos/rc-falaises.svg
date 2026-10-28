@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Logo fictif du Rugby Club des Falaises</title>
+  <path fill="#bb563b" d="M64 5 112 22v37c0 31-20 51-48 64C36 110 16 90 16 59V22z"/>
+  <path d="m34 88 17-28 9 15 11-22 24 35H34z" fill="#fff"/>
+  <path d="M41 97h46" stroke="#f1c96a" stroke-linecap="round" stroke-width="5"/>
+</svg>

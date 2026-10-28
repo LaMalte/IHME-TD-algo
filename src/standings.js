@@ -24,7 +24,10 @@ export function calculateStandings(teams, matches) {
         tryAgainst: 0,
         offensiveBonuses: 0,
         defensiveBonuses: 0,
-        tablePoints: 0
+        administrativePoints: Number.isSafeInteger(team.administrativePoints)
+          ? team.administrativePoints
+          : 0,
+        sportsPoints: 0
       }
     ])
   );
@@ -50,39 +53,40 @@ export function calculateStandings(teams, matches) {
     const tryMargin = match.homeTries - match.awayTries;
     if (tryMargin >= POINTS.offensiveBonusTryMargin) {
       home.offensiveBonuses += 1;
-      home.tablePoints += POINTS.bonus;
+      home.sportsPoints += POINTS.bonus;
     } else if (tryMargin <= -POINTS.offensiveBonusTryMargin) {
       away.offensiveBonuses += 1;
-      away.tablePoints += POINTS.bonus;
+      away.sportsPoints += POINTS.bonus;
     }
 
     if (match.homeScore > match.awayScore) {
       home.wins += 1;
       away.losses += 1;
-      home.tablePoints += POINTS.win;
+      home.sportsPoints += POINTS.win;
       if (match.homeScore - match.awayScore <= POINTS.defensiveBonusMaxLossMargin) {
         away.defensiveBonuses += 1;
-        away.tablePoints += POINTS.bonus;
+        away.sportsPoints += POINTS.bonus;
       }
     } else if (match.homeScore < match.awayScore) {
       away.wins += 1;
       home.losses += 1;
-      away.tablePoints += POINTS.win;
+      away.sportsPoints += POINTS.win;
       if (match.awayScore - match.homeScore <= POINTS.defensiveBonusMaxLossMargin) {
         home.defensiveBonuses += 1;
-        home.tablePoints += POINTS.bonus;
+        home.sportsPoints += POINTS.bonus;
       }
     } else {
       home.draws += 1;
       away.draws += 1;
-      home.tablePoints += POINTS.draw;
-      away.tablePoints += POINTS.draw;
+      home.sportsPoints += POINTS.draw;
+      away.sportsPoints += POINTS.draw;
     }
   }
 
   return [...rows.values()]
     .map((row) => ({
       ...row,
+      tablePoints: row.sportsPoints + row.administrativePoints,
       pointsDifference: row.pointsFor - row.pointsAgainst,
       tryDifference: row.tryFor - row.tryAgainst
     }))
@@ -93,6 +97,23 @@ export function calculateStandings(teams, matches) {
         b.pointsFor - a.pointsFor ||
         a.teamName.localeCompare(b.teamName, "fr")
     );
+}
+
+export function calculateStatistics(standings) {
+  const teamsWithResults = standings.filter((row) => row.played > 0);
+  const topThree = (selector, direction = "desc") => [...teamsWithResults]
+    .sort((left, right) =>
+      (direction === "desc" ? right[selector] - left[selector] : left[selector] - right[selector]) ||
+      left.teamName.localeCompare(right.teamName, "fr")
+    )
+    .slice(0, 3);
+
+  return [
+    { key: "pointsFor", title: "Meilleures attaques", unit: "points marqués", rows: topThree("pointsFor") },
+    { key: "pointsAgainst", title: "Meilleures défenses", unit: "points encaissés", rows: topThree("pointsAgainst", "asc") },
+    { key: "tryFor", title: "Essais marqués", unit: "essais", rows: topThree("tryFor") },
+    { key: "tryAgainst", title: "Essais encaissés", unit: "essais encaissés", rows: topThree("tryAgainst", "asc") }
+  ];
 }
 
 export { POINTS };

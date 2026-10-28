@@ -60,6 +60,26 @@ const schema = `
     CHECK ((role = 'admin' AND team_id IS NULL) OR (role = 'team' AND team_id IS NOT NULL))
   );
 
+  CREATE TABLE IF NOT EXISTS administrative_point_adjustments (
+    id SERIAL PRIMARY KEY,
+    team_id INTEGER NOT NULL REFERENCES teams(id),
+    admin_user_id INTEGER NOT NULL REFERENCES users(id),
+    points INTEGER NOT NULL CHECK (points <> 0),
+    reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS account_recovery_requests (
+    id SERIAL PRIMARY KEY,
+    team_id INTEGER NOT NULL REFERENCES teams(id),
+    username TEXT,
+    contact_email TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'resolved')),
+    created_at TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ,
+    resolved_by INTEGER REFERENCES users(id)
+  );
+
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash CHAR(64) PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -90,15 +110,39 @@ const demoTeams = [
   { name: "Racing Club des Alizés", logo: "racing-alizes.svg" },
   { name: "Union Rugby des Roches", logo: "union-roches.svg" },
   { name: "Ovalie du Val d'Or", logo: "ovalie-valdor.svg" },
-  { name: "Sporting des Brumes", logo: "sporting-brumes.svg" }
+  { name: "Sporting des Brumes", logo: "sporting-brumes.svg" },
+  { name: "Avenir Rugby des Pins", logo: "avenir-pins.svg" },
+  { name: "Entente des Trois Rivières", logo: "entente-rivieres.svg" },
+  { name: "Côte d'Argent Rugby", logo: "cote-argent.svg" },
+  { name: "Stade des Hautes Terres", logo: "stade-hautes-terres.svg" },
+  { name: "Rugby Club des Falaises", logo: "rc-falaises.svg" },
+  { name: "AS des Vallons", logo: "as-vallons.svg" },
+  { name: "Monts & Ovalie", logo: "monts-ovalie.svg" },
+  { name: "Étoile Rugby du Littoral", logo: "etoile-littoral.svg" }
 ];
 
-const demoMatches = [
-  [1, "2026-09-13", "Racing Club des Alizés", "Union Rugby des Roches", "confirmed", 24, 17, 3, 2],
-  [1, "2026-09-13", "Ovalie du Val d'Or", "Sporting des Brumes", "confirmed", 19, 21, 2, 3],
-  [2, "2026-09-20", "Racing Club des Alizés", "Ovalie du Val d'Or", "scheduled"],
-  [2, "2026-09-20", "Union Rugby des Roches", "Sporting des Brumes", "scheduled"]
+const teamSlogans = {
+  "Racing Club des Alizés": "Le vent dans le dos, l’équipe dans le cœur.",
+  "Union Rugby des Roches": "Solides ensemble, combatifs jusqu’au bout.",
+  "Ovalie du Val d'Or": "Un territoire, une équipe, une même passion.",
+  "Sporting des Brumes": "Dans le brouillard, notre jeu reste clair.",
+  "Avenir Rugby des Pins": "Grandir ensemble, jouer sans détour.",
+  "Entente des Trois Rivières": "Trois courants, une seule mêlée.",
+  "Côte d'Argent Rugby": "L’océan d’énergie au service du collectif.",
+  "Stade des Hautes Terres": "Le caractère des sommets, la force du groupe.",
+  "Rugby Club des Falaises": "Debout face au vent, soudés sur le terrain.",
+  "AS des Vallons": "Du premier plaquage au dernier coup de sifflet.",
+  "Monts & Ovalie": "Prendre de la hauteur, avancer ensemble.",
+  "Étoile Rugby du Littoral": "Briller ensemble, défendre nos couleurs."
+};
+
+const previousDemoFixtures = [
+  [1, "2026-09-13", "Racing Club des Alizés", "Union Rugby des Roches"],
+  [1, "2026-09-13", "Ovalie du Val d'Or", "Sporting des Brumes"],
+  [2, "2026-09-20", "Racing Club des Alizés", "Ovalie du Val d'Or"],
+  [2, "2026-09-20", "Union Rugby des Roches", "Sporting des Brumes"]
 ];
+
 const projectDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const dateValue = (value) => value instanceof Date
@@ -110,7 +154,9 @@ function mapTeam(team) {
     id: team.id,
     name: team.name,
     logoPath: team.logoPath,
-    color: team.color.trim()
+    color: team.color.trim(),
+    slogan: teamSlogans[team.name] || "Unis dans l’effort, fiers sur le terrain.",
+    administrativePoints: team.administrativePoints ?? 0
   };
 }
 
@@ -127,6 +173,63 @@ function mapMatch(match) {
     homeTries: match.homeTries,
     awayTries: match.awayTries
   };
+}
+
+function getDemoMatches() {
+  const teams = [...demoTeams];
+  const firstLeg = [];
+  const firstRoundTeams = [...teams];
+  const firstMatchday = new Date("2026-09-13T12:00:00.000Z");
+  let fixtureNumber = 0;
+
+  for (let round = 1; round <= teams.length - 1; round += 1) {
+    const date = new Date(firstMatchday);
+    date.setUTCDate(date.getUTCDate() + (round - 1) * 7);
+    for (let game = 0; game < teams.length / 2; game += 1) {
+      let home = firstRoundTeams[game];
+      let away = firstRoundTeams[teams.length - 1 - game];
+      if (round % 2 === 0) [home, away] = [away, home];
+      const completed = round <= 2;
+      const homeScore = 12 + ((round * 7 + game * 5) % 25);
+      const awayScore = 10 + ((round * 3 + game * 7) % 24);
+      const homeTries = 1 + ((round + game * 2) % 5);
+      const awayTries = 1 + ((round * 2 + game) % 5);
+      firstLeg.push([
+        round,
+        date.toISOString().slice(0, 10),
+        home.name,
+        away.name,
+        completed ? "confirmed" : "scheduled",
+        completed ? homeScore : null,
+        completed ? awayScore : null,
+        completed ? homeTries : null,
+        completed ? awayTries : null
+      ]);
+      fixtureNumber += 1;
+    }
+
+    firstRoundTeams.splice(1, 0, firstRoundTeams.pop());
+  }
+
+  return [
+    ...firstLeg,
+    ...firstLeg.map(([round, date, home, away]) => {
+      const returnDate = new Date(`${date}T12:00:00.000Z`);
+      return [
+        round + teams.length - 1,
+        new Date(returnDate.getTime() + (teams.length - 1) * 7 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10),
+        away,
+        home,
+        "scheduled",
+        null,
+        null,
+        null,
+        null
+      ];
+    })
+  ];
 }
 
 async function inTransaction(pool, callback) {
@@ -201,6 +304,13 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
       await pool.query(schema);
       await inTransaction(pool, async (client) => {
         const teamIds = new Map();
+        const demoMatches = getDemoMatches();
+        const existingFixtures = await client.query(
+          "SELECT id, home_team_id AS \"homeTeamId\", away_team_id AS \"awayTeamId\", round, date, status FROM matches"
+        );
+        const existingHomeAwayPairs = new Set(
+          existingFixtures.rows.map((match) => `${match.homeTeamId}:${match.awayTeamId}`)
+        );
         for (const team of demoTeams) {
           const logoFile = path.join(projectDirectory, "public", "logos", team.logo);
           const color = deriveLogoColor(fs.readFileSync(logoFile, "utf8"));
@@ -215,7 +325,66 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
           teamIds.set(team.name, saved.rows[0].id);
         }
 
+        for (const [oldRound, oldDate, home, away] of previousDemoFixtures) {
+          const previousHomeId = teamIds.get(home);
+          const previousAwayId = teamIds.get(away);
+          const oldFixture = existingFixtures.rows.find((match) =>
+            match.homeTeamId === previousHomeId &&
+            match.awayTeamId === previousAwayId &&
+            match.round === oldRound &&
+            dateValue(match.date) === oldDate
+          );
+          const scheduledFixture = demoMatches.find((match) =>
+            match[2] === home && match[3] === away
+          );
+          if (!oldFixture || !scheduledFixture) continue;
+
+          const targetFixtureExists = existingFixtures.rows.some((match) =>
+            match.id !== oldFixture.id &&
+            match.homeTeamId === previousHomeId &&
+            match.awayTeamId === previousAwayId &&
+            match.round === scheduledFixture[0]
+          );
+          if (!targetFixtureExists) {
+            await client.query(`
+              UPDATE matches SET round = $1, date = $2
+              WHERE id = $3
+            `, [scheduledFixture[0], scheduledFixture[1], oldFixture.id]);
+          }
+        }
+
+        const demoTeamIds = new Set(teamIds.values());
+        for (const match of existingFixtures.rows) {
+          if (
+            match.round <= 2 ||
+            match.status !== "confirmed" ||
+            !demoTeamIds.has(match.homeTeamId) ||
+            !demoTeamIds.has(match.awayTeamId)
+          ) continue;
+
+          const [reports, history, adjudications] = await Promise.all([
+            client.query("SELECT 1 FROM match_reports WHERE match_id = $1 LIMIT 1", [match.id]),
+            client.query("SELECT 1 FROM match_report_history WHERE match_id = $1 LIMIT 1", [match.id]),
+            client.query("SELECT 1 FROM match_adjudications WHERE match_id = $1 LIMIT 1", [match.id])
+          ]);
+          if (reports.rows.length || history.rows.length || adjudications.rows.length) continue;
+
+          await client.query(`
+            UPDATE matches
+            SET status = 'scheduled',
+                home_score = NULL,
+                away_score = NULL,
+                home_tries = NULL,
+                away_tries = NULL
+            WHERE id = $1
+          `, [match.id]);
+        }
+
         for (const [round, date, home, away, status, homeScore, awayScore, homeTries, awayTries] of demoMatches) {
+          const homeTeamId = teamIds.get(home);
+          const awayTeamId = teamIds.get(away);
+          const pairKey = `${homeTeamId}:${awayTeamId}`;
+          if (existingHomeAwayPairs.has(pairKey)) continue;
           await client.query(`
             INSERT INTO matches
               (home_team_id, away_team_id, round, date, status,
@@ -223,8 +392,8 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (home_team_id, away_team_id, round) DO NOTHING
           `, [
-            teamIds.get(home),
-            teamIds.get(away),
+            homeTeamId,
+            awayTeamId,
             round,
             date,
             status,
@@ -233,6 +402,7 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
             homeTries ?? null,
             awayTries ?? null
           ]);
+          existingHomeAwayPairs.add(pairKey);
         }
       });
     },
@@ -260,7 +430,7 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
     },
 
     async listLeague() {
-      const [teamResult, matchResult, reportResult, historyResult, adjudicationResult] = await Promise.all([
+      const [teamResult, matchResult, reportResult, historyResult, adjudicationResult, administrativePointsResult] = await Promise.all([
         pool.query("SELECT id, name, logo_path AS \"logoPath\", color FROM teams ORDER BY name"),
         pool.query(`
           SELECT id, home_team_id AS "homeTeamId", away_team_id AS "awayTeamId",
@@ -287,6 +457,11 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
             home_tries AS "homeTries", away_tries AS "awayTries",
             reason, decided_at AS "decidedAt"
           FROM match_adjudications ORDER BY id
+        `),
+        pool.query(`
+          SELECT team_id AS "teamId", SUM(points)::INTEGER AS points
+          FROM administrative_point_adjustments
+          GROUP BY team_id
         `)
       ]);
 
@@ -301,6 +476,9 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
       const reportsByMatch = groupByMatch(reportResult.rows);
       const historyByMatch = groupByMatch(historyResult.rows);
       const adjudicationsByMatch = groupByMatch(adjudicationResult.rows);
+      const administrativePointsByTeam = new Map(
+        administrativePointsResult.rows.map(({ teamId, points }) => [teamId, points])
+      );
       const reportsById = new Map();
       for (const [matchId, reports] of reportsByMatch) {
         reportsById.set(matchId, Object.fromEntries(reports.map((report) => [
@@ -316,7 +494,10 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
       }
 
       return {
-        teams: teamResult.rows.map(mapTeam),
+        teams: teamResult.rows.map((team) => mapTeam({
+          ...team,
+          administrativePoints: administrativePointsByTeam.get(team.id) || 0
+        })),
         matches: matchResult.rows.map((match) => ({
           ...mapMatch(match),
           reports: reportsById.get(match.id) || {},
@@ -324,6 +505,76 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
           adjudications: adjudicationsByMatch.get(match.id) || []
         }))
       };
+    },
+
+    async addAdministrativePointAdjustment(teamId, adminUserId, points, reason) {
+      await pool.query(`
+        INSERT INTO administrative_point_adjustments
+          (team_id, admin_user_id, points, reason, created_at)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [teamId, adminUserId, points, reason, new Date()]);
+    },
+
+    async listAdministrativePointAdjustments() {
+      const result = await pool.query(`
+        SELECT adjustment.id, adjustment.team_id AS "teamId", team.name AS "teamName",
+          adjustment.points, adjustment.reason, adjustment.created_at AS "createdAt",
+          users.username AS "adminUsername"
+        FROM administrative_point_adjustments AS adjustment
+        JOIN teams AS team ON team.id = adjustment.team_id
+        JOIN users ON users.id = adjustment.admin_user_id
+        ORDER BY adjustment.created_at DESC, adjustment.id DESC
+      `);
+      return result.rows;
+    },
+
+    async createRecoveryRequest({ teamId, username, contactEmail }) {
+      const result = await pool.query(`
+        INSERT INTO account_recovery_requests
+          (team_id, username, contact_email, created_at)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+      `, [teamId, username || null, contactEmail, new Date()]);
+      return result.rows[0].id;
+    },
+
+    async listRecoveryRequests() {
+      const result = await pool.query(`
+        SELECT request.id, request.team_id AS "teamId", team.name AS "teamName",
+          request.username, request.contact_email AS "contactEmail",
+          request.status, request.created_at AS "createdAt"
+        FROM account_recovery_requests AS request
+        JOIN teams AS team ON team.id = request.team_id
+        ORDER BY CASE WHEN request.status = 'pending' THEN 0 ELSE 1 END,
+          request.created_at DESC, request.id DESC
+      `);
+      return result.rows;
+    },
+
+    async resolveRecoveryRequest(requestId, adminUserId, teamId, passwordHash) {
+      return inTransaction(pool, async (client) => {
+        const account = await client.query(
+          "SELECT id, username FROM users WHERE team_id = $1 AND role = 'team'",
+          [teamId]
+        );
+        if (!account.rows[0]) return null;
+
+        const request = await client.query(`
+          UPDATE account_recovery_requests
+          SET status = 'resolved', resolved_at = $1, resolved_by = $2
+          WHERE id = $3 AND team_id = $4 AND status = 'pending'
+          RETURNING id
+        `, [new Date(), adminUserId, requestId, teamId]);
+        if (!request.rows[0]) return null;
+
+        const { id, username } = account.rows[0];
+        await client.query(`
+          UPDATE users SET password_hash = $1, must_change_password = TRUE
+          WHERE id = $2
+        `, [passwordHash, id]);
+        await client.query("DELETE FROM sessions WHERE user_id = $1", [id]);
+        return { username };
+      });
     },
 
     async createAdmin(username, passwordHash) {

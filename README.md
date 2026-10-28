@@ -1,106 +1,104 @@
-# Classement d'une poule de rugby
+# Ovale — classement de rugby
 
-Application pédagogique de classement avec React, Express et PostgreSQL. Le jeu fourni est entièrement fictif : quatre clubs, leurs logos dessinés pour le projet et quelques rencontres de démonstration. Aucune donnée officielle FFR n'est utilisée.
+## 1. Cadrage
 
-## Prérequis
+L’application s’adresse aux clubs d’une poule de rugby. Chaque club peut déclarer les points et essais des deux équipes d’un match. Le résultat entre dans le classement quand les deux déclarations concordent. Les supporters consultent gratuitement le classement, les statistiques et le calendrier.
 
-- Node.js 22 ou plus récent et npm.
-- Docker Desktop pour démarrer PostgreSQL localement ou utiliser Compose.
+## 2. Lien et lancement
 
-## Lancement local avec Node.js
+Site : [https://node219697-ihme26.jcloud.ik-server.com/ihme-td-algo/](https://node219697-ihme26.jcloud.ik-server.com/ihme-td-algo/)
 
-Installe les dépendances, crée la configuration locale et démarre la base PostgreSQL :
+Le frontend React est servi par Express. L’API est sous `/api`, la route `/api/health` vérifie le serveur et PostgreSQL, et le pool PostgreSQL est limité à 4 connexions.
 
-```powershell
-npm install
-Copy-Item .env.example .env
-docker compose up -d database
-```
-
-Le `.env.example` utilise l'identifiant local `rugby` et le mot de passe de démonstration `rugby`. Remplace-les si tu changes la configuration du service PostgreSQL dans `compose.yaml`. Ces paramètres sont réservés au développement local, jamais à un serveur public.
-
-Pour créer un administrateur local, renseigne `ADMIN_USERNAME` et `ADMIN_PASSWORD` dans `.env`. Le mot de passe doit comporter au moins 12 caractères. Ces deux variables sont facultatives et doivent être définies ensemble. Sans elles, l'application démarre sans compte administrateur.
-
-Lance l'application :
-
-```powershell
-npm run dev
-```
-
-Ouvre <http://localhost:3000>. Pour arrêter PostgreSQL, utilise `docker compose down`; le volume PostgreSQL local est conservé.
-
-## Lancement complet avec Docker Compose
-
-Cette commande démarre l'application et sa base PostgreSQL de développement :
+En local, démarrer Docker Desktop puis lancer à la racine du projet :
 
 ```powershell
 docker compose up --build
 ```
 
-Ouvre <http://localhost:3000>. Pour arrêter les services, utilise `Ctrl+C`, puis `docker compose down`. Le volume `postgres-data` conserve les données.
+Ouvrir <http://localhost:3000>. Arrêter avec `Ctrl+C`, puis `docker compose down`.
 
-## Fonctionnement
+## 3. Données
 
-- Les supporters consultent le classement, le calendrier et les résultats confirmés sans créer de compte. Ils peuvent choisir un club pour appliquer son thème dans leur navigateur.
-- À l'ouverture du site, un écran dédié demande d'abord quel club suivre. Le choix ouvre une page propre au club, à son adresse `/clubs/<id>/`, avec ses couleurs, le classement, le calendrier et les résultats. Le bouton « Changer de club » ramène au choix initial.
-- La couleur est calculée côté serveur à partir de la couleur principale du logo SVG du club. Les clubs ne définissent pas leur couleur.
-- Un club peut s'inscrire à un club fictif encore disponible, puis déclarer uniquement ses propres scores. Les points et les essais doivent concorder entre les deux équipes avant publication et prise en compte au classement.
-- Les feuilles en attente et les détails de déclarations restent privés. L'administrateur peut créer des clubs et des rencontres, et arbitrer un désaccord.
-- Les rencontres et résultats de démonstration sont fictifs. Le barème de classement sert d'exemple pédagogique et ne prétend pas appliquer toutes les règles officielles FFR.
+Schéma simplifié (PK = clé primaire, FK = clé étrangère) :
 
-**Limite importante de la démonstration :** l'inscription publique ne vérifie pas que la personne appartient réellement au club dont elle revendique le compte. Ne l'utilise pas pour administrer de vrais clubs ou des données réelles sans ajouter une procédure de vérification et d'attribution des comptes.
+```text
+teams (PK id)
+  ├── matches (PK id, FK home_team_id et away_team_id → teams.id)
+  ├── users (PK id, FK team_id → teams.id)
+  ├── match_reports (PK match_id + reporting_team_id, FK vers matches et teams)
+  ├── match_report_history (PK id, FK vers matches et teams)
+  ├── administrative_point_adjustments (PK id, FK vers teams et users)
+  └── account_recovery_requests (PK id, FK vers teams et users)
 
-Les mots de passe sont hachés avec scrypt. Les sessions sont signées, conservées sous forme de condensat dans PostgreSQL et envoyées dans un cookie HttpOnly/SameSite. En production, active HTTPS et configure `COOKIE_SECURE=true`. Le serveur génère automatiquement un secret de session et le conserve dans PostgreSQL si `SESSION_SECRET` n'est pas défini.
+matches (PK id)
+  └── match_adjudications (PK id, FK vers matches et users)
 
-## Déploiement sur le serveur du cours
+sessions (PK token_hash, FK user_id → users.id)
+app_settings (PK setting_key)
+```
 
-Le Dockerfile construit React avec `BASE_PATH`, puis sert l'application Express sur le port `3000`. Le pool PostgreSQL est limité à quatre connexions et utilise `DATABASE_URL`, fourni par le serveur. La route `GET /api/health` vérifie la connexion à la base.
+Dans [`src/database.js`](./src/database.js), cette requête réelle récupère les clubs et leurs logos :
 
-1. Dans GitHub, ouvre **Settings → Secrets and variables → Actions**.
-2. Crée le secret `IHME_DEPLOY_TOKEN` et les variables `IHME_DEPLOY_URL` et `IHME_BASE_PATH` à partir de tes propres fichiers d'accès. Ne copie jamais le jeton dans le dépôt, un commit, une capture ou un message.
-3. Envoie tes changements sur `main` ou `master`. Le workflow **Construire et publier l'image** construit et publie l'image GHCR.
-4. Pour mettre la version en ligne, ouvre **Actions → Construire et publier l'image → Run workflow**, coche **Déployer cette version après construction**, puis lance le workflow.
+```sql
+SELECT id, name, logo_path AS "logoPath", color
+FROM teams
+ORDER BY name
+```
 
-Le chemin de base attribué est `/ihme-td-algo/`. Les valeurs privées de déploiement ne sont volontairement pas incluses dans ce dépôt. Le déploiement ne se produit pas automatiquement lors d'un simple push.
+`ORDER BY name` affiche les clubs par ordre alphabétique.
 
-## API principale
+## 4. Algorithme
 
-| Méthode | URL | Accès |
+[`src/standings.js`](./src/standings.js) ignore les matchs qui ne sont pas confirmés. Une victoire vaut 4 points, un nul 2 et une défaite 0. Un bonus vaut 1 point : bonus offensif si l’écart d’essais est d’au moins 3, bonus défensif si la défaite est de 5 points ou moins. Les deux bonus sont calculés séparément. Les points administratifs s’ajoutent aux points sportifs. En cas d’égalité, le code départage par différence de points, points marqués, puis nom du club.
+
+Exemple du test [`test/standings.test.js`](./test/standings.test.js) : A bat B 30–26 et marque 5 essais contre 2. A reçoit 4 points de victoire et 1 bonus offensif, soit **5 points**. B perd de 4 points et reçoit le bonus défensif, soit **1 point**. A est classé devant B.
+
+## 5. Contrôle des entrées
+
+- Points et essais sont obligatoires, entiers et supérieurs ou égaux à zéro. L’interface indique : « Saisissez les points et essais des deux équipes avec des nombres entiers positifs ou nuls. Les champs vides, négatifs ou décimaux sont refusés. »
+- Les essais doivent représenter au moins 5 points chacun. Sinon, le message est : « Résultat incohérent : chaque essai vaut au minimum 5 points. Vérifiez le score de chaque équipe. »
+- Ces contrôles sont aussi appliqués par l’API. Un score 0–0 sans essai est autorisé.
+- Pour arbitrer un match, l’administrateur doit également fournir un motif de 5 à 500 caractères.
+
+## 6. Essais
+
+Résultats observés en exécutant `npm test` :
+
+| Entrée | Attendu | Obtenu |
 |---|---|---|
-| `GET` | `/api/health` | Vérification de l'application et de PostgreSQL |
-| `GET` | `/api/public/league` | Clubs, classement et rencontres publics |
-| `GET` | `/api/league` | Détails de saisie (connexion requise) |
-| `GET` | `/api/auth/me` | Session courante |
-| `POST` | `/api/auth/register` | Inscription d'un club fictif disponible |
-| `POST` | `/api/auth/login` | Connexion |
-| `POST` | `/api/auth/logout` | Déconnexion |
-| `POST` | `/api/auth/password` | Modification du mot de passe |
-| `POST` | `/api/matches/:id/result` | Déclaration d'un score par un club participant |
-| `POST` | `/api/teams` | Création d'un club (administrateur) |
-| `POST` | `/api/matches` | Création d'une rencontre (administrateur) |
-| `POST` | `/api/matches/:id/resolve` | Arbitrage d'un désaccord (administrateur) |
+| Match confirmé : A 30–26 B, essais 5–2 | A : 5 pts; B : 1 pt | Test réussi : A est devant B avec ces points |
+| Aucun match confirmé | Aucun match joué et aucune statistique de club | Test réussi : 0 match joué, catégories vides; la page indique « Aucun match confirmé pour le moment. » |
+| Score A = −1 | Refus avec erreur HTTP 400 | Test API réussi : « Saisissez les points et essais des deux équipes en nombres entiers égaux ou supérieurs à zéro. » |
 
-## Vérification
+Le cas limite 0–0 sans essai est également testé : il est accepté et rapporte 2 points à chaque équipe.
+
+## 7. Tests automatiques
+
+Lancer les tests :
 
 ```powershell
 npm test
-npm run build -- --base=/ihme-td-algo/
 ```
 
-Les tests couvrent les calculs du classement, l'initialisation idempotente des données PostgreSQL, l'API publique et les permissions des comptes de clubs.
+Les tests de [`test/`](./test/) vérifient le calcul du classement et des bonus, les statistiques, les matchs non confirmés, la validation des scores, l’accord des feuilles, les comptes et permissions, la récupération d’accès et l’initialisation de la base.
 
-## Repères dans le projet
+## 8. Fonctions du site
 
-- `client/App.jsx` et `client/styles.css` : interface React, vues publiques et espace club.
-- `src/server.js` : configuration de démarrage, PostgreSQL, secret de session et serveur HTTP.
-- `src/app.js` : routes Express, authentification, autorisations et service des fichiers React compilés.
-- `src/database.js` : schéma PostgreSQL, pool de quatre connexions, données fictives et couleurs tirées des logos.
-- `src/auth.js` : hachage des mots de passe et gestion cryptographique des sessions.
-- `src/results.js` : comparaison des déclarations et confirmation des résultats.
-- `src/standings.js` : calcul du classement à partir des seuls résultats confirmés.
-- `public/logos/` : logos SVG fictifs, source des couleurs de clubs.
-- `test/` : tests de l'API, de la base et des calculs sportifs.
-- `Dockerfile` et `compose.yaml` : construction de l'image et environnement local PostgreSQL.
-- `.github/workflows/publish.yml` : publication GHCR et déploiement manuel.
-- `deploy/request.py` : appel du service de déploiement sans afficher les jetons.
-- `.env.example` : exemple de configuration de développement; `.env` ne doit jamais être commité.
+- Choix d’un club; couleurs inspirées de son logo et slogan fictif.
+- Fiche du club avec sa position dans la poule, placée à droite du bandeau sur grand écran.
+- Classement triable par points, différence de points ou essais marqués. Il tient dans la largeur de la page; sur petit écran, les lignes deviennent des fiches.
+- Statistiques des trois meilleures attaques, défenses, équipes ayant marqué le plus d’essais et équipes en ayant encaissé le moins.
+- Logos et noms cliquables dans le classement, le calendrier et les statistiques pour ouvrir la fiche du club.
+- Calendrier filtrable par club, journée et statut (résultat confirmé ou match à venir/en attente); un message s’affiche si aucun match ne correspond.
+- Comptes club, déclaration des feuilles et confirmation automatique lorsque les deux déclarations concordent.
+- Récupération d’identifiant ou de mot de passe par demande à l’administrateur. Aucun courriel automatique n’est envoyé; après vérification, l’administrateur peut fournir un mot de passe provisoire.
+- Espace administrateur pour programmer les matchs, arbitrer un désaccord et gérer les points administratifs.
+
+## 9. Limite et amélioration
+
+L’inscription ne vérifie pas que la personne appartient réellement au club choisi. Une amélioration serait de faire valider les comptes par l’administrateur avant d’autoriser la saisie des scores.
+
+## 10. Données fictives
+
+Les clubs, logos, calendriers, scores et slogans de démonstration sont fictifs et ne représentent pas les résultats officiels de la FFR. Aucun secret personnel ni jeton de déploiement n’est versionné dans le dépôt. Le fichier `.env.example` est un modèle : les vrais secrets restent dans l’environnement privé.

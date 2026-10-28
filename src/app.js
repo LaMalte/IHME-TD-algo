@@ -9,8 +9,8 @@ import {
   parseCookies,
   verifyPassword
 } from "./auth.js";
-import { resolveReports } from "./results.js";
-import { calculateStandings } from "./standings.js";
+import { isValidMatchScore, resolveReports } from "./results.js";
+import { calculateStandings, calculateStatistics } from "./standings.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const sessionCookieName = "rugby_session";
@@ -34,6 +34,12 @@ function isValidUsername(value) {
 
 function isValidPassword(value) {
   return typeof value === "string" && value.length >= 12 && value.length <= 200;
+}
+
+function isValidContactEmail(value) {
+  return typeof value === "string" &&
+    value.length <= 254 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function getTokenHash(token) {
@@ -63,6 +69,7 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
   const app = express();
   if (trustProxy) app.set("trust proxy", 1);
   const loginAttempts = new Map();
+  const recoveryRequestAttempts = new Map();
   const publicDirectory = path.resolve(currentDirectory, "..", "dist");
 
   app.use(express.json({ limit: "20kb" }));
@@ -182,7 +189,8 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
     response.json({
       teams: league.teams,
       matches: publicMatches,
-      standings: calculateStandings(league.teams, league.matches)
+      standings: calculateStandings(league.teams, league.matches),
+      statistics: calculateStatistics(calculateStandings(league.teams, league.matches))
     });
   }));
 
@@ -221,6 +229,45 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
       }
       throw error;
     }
+  }));
+
+  app.post("/api/auth/recovery-requests", asyncRoute(async (request, response) => {
+    const ip = request.ip;
+    const attempts = recoveryRequestAttempts.get(ip);
+    if (attempts && attempts.count >= 3 && Date.now() - attempts.startedAt < 60 * 60 * 1000) {
+      response.status(429).json({ error: "Trop de demandes. Réessayez dans une heure." });
+      return;
+    }
+
+    const { teamId, username = "", contactEmail } = request.body;
+    if (
+      !Number.isSafeInteger(teamId) ||
+      !isValidContactEmail(contactEmail) ||
+      (username !== "" && !isValidUsername(username))
+    ) {
+      response.status(400).json({
+        error: "Choisissez votre club, saisissez une adresse e-mail valide et indiquez un identifiant valide si vous le connaissez."
+      });
+      return;
+    }
+    if (!(await database.hasTeam(teamId))) {
+      response.status(400).json({ error: "Le club sélectionné n'existe pas." });
+      return;
+    }
+
+    await database.createRecoveryRequest({
+      teamId,
+      username: username.trim(),
+      contactEmail: contactEmail.trim()
+    });
+    if (!attempts || Date.now() - attempts.startedAt >= 60 * 60 * 1000) {
+      recoveryRequestAttempts.set(ip, { count: 1, startedAt: Date.now() });
+    } else {
+      attempts.count += 1;
+    }
+    response.status(201).json({
+      message: "Demande enregistrée. L'administration vérifiera votre identité puis vous contactera."
+    });
   }));
 
   app.post("/api/auth/login", asyncRoute(async (request, response) => {
@@ -299,8 +346,83 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
     response.json({
       teams: league.teams,
       matches,
-      standings: calculateStandings(league.teams, league.matches)
+      standings: calculateStandings(league.teams, league.matches),
+      statistics: calculateStatistics(calculateStandings(league.teams, league.matches))
     });
+  }));
+
+  app.get("/api/admin/recovery-requests", requireAdmin, asyncRoute(async (_request, response) => {
+    response.json({ requests: await database.listRecoveryRequests() });
+  }));
+
+  app.post("/api/admin/recovery-requests/:id/reset", requireAdmin, asyncRoute(async (request, response) => {
+    const requestId = Number(request.params.id);
+    if (!Number.isSafeInteger(requestId) || requestId < 1) {
+      response.status(400).json({ error: "Demande de récupération invalide." });
+      return;
+    }
+
+    const recoveryRequest = (await database.listRecoveryRequests())
+      .find((entry) => entry.id === requestId && entry.status === "pending");
+    if (!recoveryRequest) {
+      response.status(404).json({ error: "Cette demande n'existe plus ou a déjà été traitée." });
+      return;
+    }
+
+    const temporaryPassword = randomBytes(18).toString("base64url");
+    const passwordHash = await hashPassword(temporaryPassword);
+    const account = await database.resolveRecoveryRequest(
+      requestId,
+      request.auth.id,
+      recoveryRequest.teamId,
+      passwordHash
+    );
+    if (!account) {
+      response.status(409).json({
+        error: "Aucun compte de club n'est associé à cette équipe ou la demande vient d'être traitée."
+      });
+      return;
+    }
+
+    response.json({
+      username: account.username,
+      temporaryPassword,
+      message: "Mot de passe provisoire généré. Communiquez-le au contact après vérification de son identité."
+    });
+  }));
+
+  app.get("/api/admin/administrative-points", requireAdmin, asyncRoute(async (_request, response) => {
+    response.json({ adjustments: await database.listAdministrativePointAdjustments() });
+  }));
+
+  app.post("/api/teams/:id/administrative-points", requireAdmin, asyncRoute(async (request, response) => {
+    const teamId = Number(request.params.id);
+    const { points, reason } = request.body;
+    if (
+      !Number.isSafeInteger(teamId) ||
+      !Number.isSafeInteger(points) ||
+      points === 0 ||
+      typeof reason !== "string" ||
+      reason.trim().length < 5 ||
+      reason.trim().length > 300
+    ) {
+      response.status(400).json({
+        error: "Indiquez un nombre entier de points différent de zéro et un motif de 5 à 300 caractères."
+      });
+      return;
+    }
+    if (!(await database.hasTeam(teamId))) {
+      response.status(404).json({ error: "Club introuvable." });
+      return;
+    }
+
+    await database.addAdministrativePointAdjustment(
+      teamId,
+      request.auth.id,
+      points,
+      reason.trim()
+    );
+    response.json({ message: "Ajustement administratif enregistré." });
   }));
 
   app.post("/api/teams", requireAdmin, asyncRoute(async (request, response) => {
@@ -364,7 +486,15 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
       !Number.isSafeInteger(matchId) ||
       ![score, opponentScore, tries, opponentTries].every(isNonNegativeInteger)
     ) {
-      response.status(400).json({ error: "Les points et essais doivent être des entiers positifs ou nuls." });
+      response.status(400).json({
+        error: "Saisissez les points et essais des deux équipes en nombres entiers égaux ou supérieurs à zéro."
+      });
+      return;
+    }
+    if (!isValidMatchScore(score, opponentScore, tries, opponentTries)) {
+      response.status(400).json({
+        error: "Résultat incohérent : chaque essai vaut au minimum 5 points. Vérifiez les points et essais de chaque équipe."
+      });
       return;
     }
 
@@ -410,6 +540,12 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
       reason.trim().length > 500
     ) {
       response.status(400).json({ error: "Indiquez les points, essais et un motif de 5 à 500 caractères." });
+      return;
+    }
+    if (!isValidMatchScore(homeScore, awayScore, homeTries, awayTries)) {
+      response.status(400).json({
+        error: "Résultat incohérent : chaque essai vaut au minimum 5 points. Vérifiez les points et essais des deux équipes."
+      });
       return;
     }
 

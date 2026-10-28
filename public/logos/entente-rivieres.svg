@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Logo fictif de l'Entente des Trois Rivières</title>
+  <path fill="#287c9b" d="M64 5 112 22v37c0 31-20 51-48 64C36 110 16 90 16 59V22z"/>
+  <path d="M28 52c12-12 22-12 34 0s22 12 38 0M28 70c12-12 22-12 34 0s22 12 38 0M34 88c10-9 19-9 28 0s19 9 32 0" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="6"/>
+</svg>

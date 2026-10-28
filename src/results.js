@@ -1,3 +1,16 @@
+export function isValidScoreLine(score, tries) {
+  return Number.isSafeInteger(score) &&
+    score >= 0 &&
+    Number.isSafeInteger(tries) &&
+    tries >= 0 &&
+    tries * 5 <= score;
+}
+
+export function isValidMatchScore(homeScore, awayScore, homeTries, awayTries) {
+  return isValidScoreLine(homeScore, homeTries) &&
+    isValidScoreLine(awayScore, awayTries);
+}
+
 export function resolveReports(homeReport, awayReport) {
   if (!homeReport || !awayReport) return { status: "pending" };
 
