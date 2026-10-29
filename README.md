@@ -18,6 +18,29 @@ docker compose up --build
 
 Ouvrir <http://localhost:3000>. Arrêter avec `Ctrl+C`, puis `docker compose down`.
 
+## Codes d’invitation des clubs
+
+Aucun code n’est prédéfini dans le projet. L’administrateur génère un code pour un club sans compte; il s’affiche une seule fois et n’est ensuite conservé qu’en version hachée. Un nouveau code remplace le précédent. Connectez-vous à l’espace administrateur local pour en générer un; chaque code ne peut servir qu’une fois.
+
+Clubs fictifs disponibles :
+
+- Racing Club des Alizés
+- Union Rugby des Roches
+- Ovalie du Val d'Or
+- Sporting des Brumes
+- Avenir Rugby des Pins
+- Entente des Trois Rivières
+- Côte d'Argent Rugby
+- Stade des Hautes Terres
+- Rugby Club des Falaises
+- AS des Vallons
+- Monts & Ovalie
+- Étoile Rugby du Littoral
+
+## Compte administrateur
+
+Pour créer le compte administrateur local, renseignez `ADMIN_USERNAME` et `ADMIN_PASSWORD` dans le fichier `.env` (à partir de `.env.example`), puis démarrez l’application. Les deux valeurs sont obligatoires ensemble; le nom doit contenir 3 à 40 caractères autorisés et le mot de passe entre 12 et 200 caractères. Le compte est créé au premier démarrage si la base ne contient pas déjà d’administrateur. Ces variables ne réinitialisent pas un compte existant.
+
 ## 3. Données
 
 Schéma simplifié (PK = clé primaire, FK = clé étrangère) :
@@ -75,9 +98,9 @@ Résultats observés en exécutant `npm test` :
 
 | Entrée | Attendu | Obtenu | Vérifié sur le site |
 |---|---|---|---|
-| Match confirmé : A 30–26 B, essais 5–2 | A : 5 pts; B : 1 pt | Test réussi : A est devant B avec ces points | |
-| Aucun match confirmé | Aucun match joué et aucune statistique de club | Test réussi : 0 match joué, catégories vides; la page indique « Aucun match confirmé pour le moment. » | |
-| Score A = −1 | Refus avec erreur HTTP 400 | Test API réussi : « Saisissez les points et essais des deux équipes en nombres entiers égaux ou supérieurs à zéro. » | |
+| Match confirmé : A 30–26 B, essais 5–2 | A : 5 pts; B : 1 pt | Test réussi : A est devant B avec ces points |Page d’accueil affichée; 12 clubs chargés|
+| Aucun match confirmé | Aucun match joué et aucune statistique de club | Test réussi : 0 match joué, catégories vides; la page indique « Aucun match confirmé pour le moment. » |« Aucun résultat confirmé ne correspond aux filtres sélectionnés. »|
+| Score A = −1 | Refus avec erreur HTTP 400 | Test API réussi : « Saisissez les points et essais des deux équipes en nombres entiers égaux ou supérieurs à zéro. » |« Saisissez les points et essais des deux équipes avec des nombres entiers positifs ou nuls. Les champs vides, négatifs ou décimaux sont refusés. » (vérifié en local)|
 
 Le cas limite 0–0 sans essai est également testé : il est accepté et rapporte 2 points à chaque équipe.
 
@@ -107,7 +130,7 @@ Les tests de [`test/`](./test/) vérifient le calcul du classement et des bonus,
 
 ## 9. Limite et amélioration
 
-Le code d’invitation limite l’inscription aux personnes qui l’ont reçu, mais ne vérifie pas à lui seul que la personne appartient réellement au club. L’administrateur doit donc transmettre les codes en privé et peut faire valider les comptes avant d’autoriser la saisie des scores.
+Le code d’invitation à usage unique limite l’inscription aux personnes à qui l’administrateur le transmet, mais ne vérifie pas que la personne appartient réellement au club. Une amélioration possible serait de permettre à l’administrateur de vérifier l’appartenance au club avant d’autoriser la saisie des scores.
 
 ## 10. Données fictives
 
