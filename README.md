@@ -26,6 +26,7 @@ Schéma simplifié (PK = clé primaire, FK = clé étrangère) :
 teams (PK id)
   ├── matches (PK id, FK home_team_id et away_team_id → teams.id)
   ├── users (PK id, FK team_id → teams.id)
+  ├── team_invitation_codes (PK/FK team_id → teams.id)
   ├── match_reports (PK match_id + reporting_team_id, FK vers matches et teams)
   ├── match_report_history (PK id, FK vers matches et teams)
   ├── administrative_point_adjustments (PK id, FK vers teams et users)
@@ -48,28 +49,35 @@ ORDER BY name
 
 `ORDER BY name` affiche les clubs par ordre alphabétique.
 
+## Persistance
+
+Les données de l’application sont enregistrées dans PostgreSQL. Avec Docker Compose en local, le service PostgreSQL utilise le volume nommé `postgres-data`, monté dans `/var/lib/postgresql/data`; les données sont ainsi conservées indépendamment du conteneur. `docker compose down -v` supprime aussi ce volume.
+
 ## 4. Algorithme
 
 [`src/standings.js`](./src/standings.js) ignore les matchs qui ne sont pas confirmés. Une victoire vaut 4 points, un nul 2 et une défaite 0. Un bonus vaut 1 point : bonus offensif si l’écart d’essais est d’au moins 3, bonus défensif si la défaite est de 5 points ou moins. Les deux bonus sont calculés séparément. Les points administratifs s’ajoutent aux points sportifs. En cas d’égalité, le code départage par différence de points, points marqués, puis nom du club.
+
+Ce barème est pédagogique et ne reprend pas forcément toutes les règles officielles de la FFR.
 
 Exemple du test [`test/standings.test.js`](./test/standings.test.js) : A bat B 30–26 et marque 5 essais contre 2. A reçoit 4 points de victoire et 1 bonus offensif, soit **5 points**. B perd de 4 points et reçoit le bonus défensif, soit **1 point**. A est classé devant B.
 
 ## 5. Contrôle des entrées
 
-- Points et essais sont obligatoires, entiers et supérieurs ou égaux à zéro. L’interface indique : « Saisissez les points et essais des deux équipes avec des nombres entiers positifs ou nuls. Les champs vides, négatifs ou décimaux sont refusés. »
-- Les essais doivent représenter au moins 5 points chacun. Sinon, le message est : « Résultat incohérent : chaque essai vaut au minimum 5 points. Vérifiez le score de chaque équipe. »
-- Ces contrôles sont aussi appliqués par l’API. Un score 0–0 sans essai est autorisé.
+- Dans le formulaire club, l’interface refuse les champs vides, négatifs ou décimaux et affiche : « Saisissez les points et essais des deux équipes avec des nombres entiers positifs ou nuls. Les champs vides, négatifs ou décimaux sont refusés. »
+- Pour ces valeurs invalides, l’API renvoie : « Saisissez les points et essais des deux équipes en nombres entiers égaux ou supérieurs à zéro. »
+- Si un essai ne correspond pas à au moins 5 points, l’interface affiche : « Résultat incohérent : chaque essai vaut au minimum 5 points. Vérifiez le score de chaque équipe. » L’API renvoie : « Résultat incohérent : chaque essai vaut au minimum 5 points. Vérifiez les points et essais de chaque équipe. »
+- Un score 0–0 sans essai est autorisé.
 - Pour arbitrer un match, l’administrateur doit également fournir un motif de 5 à 500 caractères.
 
 ## 6. Essais
 
 Résultats observés en exécutant `npm test` :
 
-| Entrée | Attendu | Obtenu |
-|---|---|---|
-| Match confirmé : A 30–26 B, essais 5–2 | A : 5 pts; B : 1 pt | Test réussi : A est devant B avec ces points |
-| Aucun match confirmé | Aucun match joué et aucune statistique de club | Test réussi : 0 match joué, catégories vides; la page indique « Aucun match confirmé pour le moment. » |
-| Score A = −1 | Refus avec erreur HTTP 400 | Test API réussi : « Saisissez les points et essais des deux équipes en nombres entiers égaux ou supérieurs à zéro. » |
+| Entrée | Attendu | Obtenu | Vérifié sur le site |
+|---|---|---|---|
+| Match confirmé : A 30–26 B, essais 5–2 | A : 5 pts; B : 1 pt | Test réussi : A est devant B avec ces points | |
+| Aucun match confirmé | Aucun match joué et aucune statistique de club | Test réussi : 0 match joué, catégories vides; la page indique « Aucun match confirmé pour le moment. » | |
+| Score A = −1 | Refus avec erreur HTTP 400 | Test API réussi : « Saisissez les points et essais des deux équipes en nombres entiers égaux ou supérieurs à zéro. » | |
 
 Le cas limite 0–0 sans essai est également testé : il est accepté et rapporte 2 points à chaque équipe.
 
@@ -92,12 +100,14 @@ Les tests de [`test/`](./test/) vérifient le calcul du classement et des bonus,
 - Logos et noms cliquables dans le classement, le calendrier et les statistiques pour ouvrir la fiche du club.
 - Calendrier filtrable par club, journée et statut (résultat confirmé ou match à venir/en attente); un message s’affiche si aucun match ne correspond.
 - Comptes club, déclaration des feuilles et confirmation automatique lorsque les deux déclarations concordent.
+- Inscription protégée par un code d’invitation propre au club, généré par l’administrateur et utilisable une seule fois. Seul son hash est conservé; un nouveau code invalide le précédent.
 - Récupération d’identifiant ou de mot de passe par demande à l’administrateur. Aucun courriel automatique n’est envoyé; après vérification, l’administrateur peut fournir un mot de passe provisoire.
+- Inscription protégée par un code d’invitation propre au club, généré par l’administrateur et utilisable une seule fois. Seul son hash est conservé; un nouveau code invalide le précédent.
 - Espace administrateur pour programmer les matchs, arbitrer un désaccord et gérer les points administratifs.
 
 ## 9. Limite et amélioration
 
-L’inscription ne vérifie pas que la personne appartient réellement au club choisi. Une amélioration serait de faire valider les comptes par l’administrateur avant d’autoriser la saisie des scores.
+Le code d’invitation limite l’inscription aux personnes qui l’ont reçu, mais ne vérifie pas à lui seul que la personne appartient réellement au club. L’administrateur doit donc transmettre les codes en privé et peut faire valider les comptes avant d’autoriser la saisie des scores.
 
 ## 10. Données fictives
 

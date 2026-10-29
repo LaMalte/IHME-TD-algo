@@ -134,7 +134,9 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [adminRecoveryRequests, setAdminRecoveryRequests] = useState([]);
   const [adminPointAdjustments, setAdminPointAdjustments] = useState([]);
+  const [adminInvitationCodeTeams, setAdminInvitationCodeTeams] = useState([]);
   const [recoveryCredentials, setRecoveryCredentials] = useState({});
+  const [invitationCodes, setInvitationCodes] = useState({});
 
   const teamById = useMemo(
     () => new Map(league.teams.map((team) => [team.id, team])),
@@ -182,12 +184,14 @@ function App() {
     const data = await request(user && !user.mustChangePassword ? "/league" : "/public/league");
     setLeague(data);
     if (user?.role === "admin" && !user.mustChangePassword) {
-      const [recoveryData, pointData] = await Promise.all([
+      const [recoveryData, pointData, invitationCodeData] = await Promise.all([
         request("/admin/recovery-requests"),
-        request("/admin/administrative-points")
+        request("/admin/administrative-points"),
+        request("/admin/invitation-codes")
       ]);
       setAdminRecoveryRequests(recoveryData.requests);
       setAdminPointAdjustments(pointData.adjustments);
+      setAdminInvitationCodeTeams(invitationCodeData.teams);
     }
     if (selectedTeamId && !data.teams.some((team) => String(team.id) === selectedTeamId)) {
       setSelectedTeamId("");
@@ -317,6 +321,23 @@ function App() {
     }, "Mot de passe provisoire généré. Transmettez-le au contact après vérification de son identité.");
   }
 
+  async function generateInvitationCode(team) {
+    if (
+      team.hasInvitationCode &&
+      !window.confirm(`Un code est déjà actif pour ${team.name}. Le remplacer invalidera l'ancien code. Continuer ?`)
+    ) return;
+
+    await runAction(async () => {
+      const { code } = await request(`/admin/teams/${team.teamId}/invitation-code`, {
+        method: "POST"
+      });
+      setInvitationCodes((previous) => ({
+        ...previous,
+        [team.teamId]: code
+      }));
+    }, "Code d'invitation généré. Transmettez-le au club en privé.");
+  }
+
   async function submitAdministrativePoints(event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -335,6 +356,8 @@ function App() {
     await runAction(async () => {
       await request("/auth/logout", { method: "POST" });
       setCurrentUser(null);
+      setInvitationCodes({});
+      setAdminInvitationCodeTeams([]);
       setLoginOpen(false);
     }, "Vous êtes déconnecté.", () => null);
   }
@@ -452,6 +475,7 @@ function App() {
           </label>
           <label>Identifiant<input name="username" minLength="3" maxLength="40" pattern="[A-Za-z0-9._-]{3,40}" autoComplete="username" required /></label>
           <label>Mot de passe (12 caractères minimum)<input name="password" type="password" minLength="12" maxLength="200" autoComplete="new-password" required /></label>
+          <label>Code d’invitation du club<input name="invitationCode" autoComplete="off" required /></label>
           <button disabled={busy}>Créer mon compte</button>
         </form>
       </section>
@@ -817,6 +841,51 @@ function App() {
                   </table>
                 </div>
               )}
+            </section>
+
+            <section className="panel admin-panel invitation-codes-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">INSCRIPTIONS CLUBS</p>
+                  <h2>Codes d’invitation</h2>
+                </div>
+                <span className="request-count">
+                  {adminInvitationCodeTeams.filter((team) => !team.registered).length} clubs à inscrire
+                </span>
+              </div>
+              <p className="hint">Générez un code secret et transmettez-le au club en privé. Chaque code ne peut servir qu’une fois; le code complet n’est affiché qu’après sa génération. En créer un nouveau invalide le précédent.</p>
+              {adminInvitationCodeTeams.length === 0
+                ? <p className="empty">Aucun club disponible.</p>
+                : <div className="invitation-code-list">
+                  {adminInvitationCodeTeams.map((team) => (
+                    <article className="invitation-code-row" key={team.teamId}>
+                      <div className="invitation-code-details">
+                        <strong>{team.name}</strong>
+                        <span>
+                          {team.registered
+                            ? "Compte déjà créé"
+                            : team.hasInvitationCode
+                              ? "Code actif; seul son hash est conservé"
+                              : "Aucun code actif"}
+                        </span>
+                        {invitationCodes[team.teamId] && (
+                          <code className="invitation-code-value" role="status">
+                            {invitationCodes[team.teamId]}
+                          </code>
+                        )}
+                      </div>
+                      {!team.registered && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => generateInvitationCode(team)}
+                        >
+                          {team.hasInvitationCode ? "Remplacer le code" : "Générer le code"}
+                        </button>
+                      )}
+                    </article>
+                  ))}
+                </div>}
             </section>
 
             <section className="panel admin-panel recovery-requests-panel">

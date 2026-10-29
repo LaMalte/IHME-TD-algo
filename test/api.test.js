@@ -74,21 +74,96 @@ test("publishes only fictional confirmed results and protects club accounts", as
         : scheduledMatch.homeTeamId)
     );
 
+    const adminLogin = await request("/api/auth/login", {
+      method: "POST",
+      body: { username: "demo-admin", password: adminPassword }
+    });
+    assert.equal(adminLogin.status, 200);
+    assert.equal(adminLogin.body.user.role, "admin");
+    const adminCookie = adminLogin.cookie;
+
+    assert.equal((await request("/api/admin/invitation-codes")).status, 401);
+    const homeInvitation = await request(`/api/admin/teams/${home.id}/invitation-code`, {
+      method: "POST",
+      cookie: adminCookie
+    });
+    assert.equal(homeInvitation.status, 201);
+    assert.match(homeInvitation.body.code, /^[A-Za-z0-9_-]{43}$/);
+    const storedInvitation = await database.query(
+      "SELECT code_hash FROM team_invitation_codes WHERE team_id = $1",
+      [home.id]
+    );
+    assert.match(storedInvitation.rows[0].code_hash, /^[\da-f]{64}$/);
+    assert.notEqual(storedInvitation.rows[0].code_hash, homeInvitation.body.code);
+    assert.equal((await request(`/api/admin/teams/${home.id}/invitation-code`, {
+      method: "POST"
+    })).status, 401);
+    const awayInvitation = await request(`/api/admin/teams/${opponentTeam.id}/invitation-code`, {
+      method: "POST",
+      cookie: adminCookie
+    });
+    assert.equal(awayInvitation.status, 201);
+    const replacedAwayInvitation = await request(`/api/admin/teams/${opponentTeam.id}/invitation-code`, {
+      method: "POST",
+      cookie: adminCookie
+    });
+    assert.equal(replacedAwayInvitation.status, 201);
+    assert.notEqual(awayInvitation.body.code, replacedAwayInvitation.body.code);
+    const invitationCodeList = await request("/api/admin/invitation-codes", {
+      cookie: adminCookie
+    });
+    assert.equal(invitationCodeList.status, 200);
+    assert.ok(invitationCodeList.body.teams.find((team) => team.teamId === home.id).hasInvitationCode);
+    assert.equal(JSON.stringify(invitationCodeList.body).includes(homeInvitation.body.code), false);
+
     const invalidRegistration = await request("/api/auth/register", {
       method: "POST",
       body: { teamId: home.id, username: "club-alizes", password: "short" }
     });
     assert.equal(invalidRegistration.status, 400);
 
-    const homeRegistration = await request("/api/auth/register", {
+    const missingInvitationCode = await request("/api/auth/register", {
       method: "POST",
       body: { teamId: home.id, username: "club-alizes", password: "club-password-secure" }
+    });
+    assert.equal(missingInvitationCode.status, 400);
+    assert.match(missingInvitationCode.body.error, /code d'invitation/);
+
+    const wrongTeamInvitation = await request("/api/auth/register", {
+      method: "POST",
+      body: {
+        teamId: home.id,
+        username: "club-alizes",
+        password: "club-password-secure",
+        invitationCode: replacedAwayInvitation.body.code
+      }
+    });
+    assert.equal(wrongTeamInvitation.status, 400);
+
+    const homeRegistration = await request("/api/auth/register", {
+      method: "POST",
+      body: {
+        teamId: home.id,
+        username: "club-alizes",
+        password: "club-password-secure",
+        invitationCode: homeInvitation.body.code
+      }
     });
     assert.equal(homeRegistration.status, 201);
     assert.equal(homeRegistration.body.user.role, "team");
     assert.match(homeRegistration.setCookieHeader, /HttpOnly/i);
     assert.match(homeRegistration.setCookieHeader, /SameSite=Strict/i);
     const homeCookie = homeRegistration.cookie;
+    const registeredTeamCodes = await request("/api/admin/invitation-codes", {
+      cookie: adminCookie
+    });
+    const registeredHome = registeredTeamCodes.body.teams.find((team) => team.teamId === home.id);
+    assert.equal(registeredHome.registered, true);
+    assert.equal(registeredHome.hasInvitationCode, false);
+    assert.equal((await request(`/api/admin/teams/${home.id}/invitation-code`, {
+      method: "POST",
+      cookie: adminCookie
+    })).status, 409);
 
     const missingScore = await request(`/api/matches/${scheduledMatch.id}/result`, {
       method: "POST",
@@ -124,16 +199,33 @@ test("publishes only fictional confirmed results and protects club accounts", as
 
     const duplicateClub = await request("/api/auth/register", {
       method: "POST",
-      body: { teamId: home.id, username: "other-account", password: "club-password-secure" }
+      body: {
+        teamId: home.id,
+        username: "other-account",
+        password: "club-password-secure",
+        invitationCode: homeInvitation.body.code
+      }
     });
     assert.equal(duplicateClub.status, 409);
+
+    const replacedInvitationRejected = await request("/api/auth/register", {
+      method: "POST",
+      body: {
+        teamId: opponentTeam.id,
+        username: "club-adversaire",
+        password: "club-password-secure",
+        invitationCode: awayInvitation.body.code
+      }
+    });
+    assert.equal(replacedInvitationRejected.status, 400);
 
     const awayRegistration = await request("/api/auth/register", {
       method: "POST",
       body: {
         teamId: opponentTeam.id,
         username: "club-adversaire",
-        password: "club-password-secure"
+        password: "club-password-secure",
+        invitationCode: replacedAwayInvitation.body.code
       }
     });
     assert.equal(awayRegistration.status, 201);
@@ -184,14 +276,6 @@ test("publishes only fictional confirmed results and protects club accounts", as
     assert.equal(confirmedPublic.homeScore, 24);
     assert.equal(confirmedPublic.awayScore, 19);
     assert.equal("reports" in confirmedPublic, false);
-
-    const adminLogin = await request("/api/auth/login", {
-      method: "POST",
-      body: { username: "demo-admin", password: adminPassword }
-    });
-    assert.equal(adminLogin.status, 200);
-    assert.equal(adminLogin.body.user.role, "admin");
-    const adminCookie = adminLogin.cookie;
 
     const unauthenticatedRecoveryRequests = await request("/api/admin/recovery-requests");
     assert.equal(unauthenticatedRecoveryRequests.status, 401);

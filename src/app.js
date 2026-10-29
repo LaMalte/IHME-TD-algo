@@ -42,8 +42,12 @@ function isValidContactEmail(value) {
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function getTokenHash(token) {
-  return createHash("sha256").update(token).digest("hex");
+function isValidInvitationCode(value) {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+function getSha256Hash(value) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function getSafeUser(user) {
@@ -105,7 +109,7 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
     const token = getVerifiedSessionToken(cookieValue, sessionSecret);
     request.sessionToken = token;
     request.auth = token
-      ? getSafeUser(await database.findSession(getTokenHash(token)))
+      ? getSafeUser(await database.findSession(getSha256Hash(token)))
       : null;
     next();
   }));
@@ -151,7 +155,7 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
   async function startSession(userId, response) {
     const { token, cookieValue } = createSessionToken(sessionSecret);
     await database.createSession(
-      getTokenHash(token),
+      getSha256Hash(token),
       userId,
       new Date(Date.now() + sessionDurationMs)
     );
@@ -199,7 +203,7 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
   });
 
   app.post("/api/auth/register", asyncRoute(async (request, response) => {
-    const { teamId, username, password } = request.body;
+    const { teamId, username, password, invitationCode } = request.body;
     if (
       !Number.isSafeInteger(teamId) ||
       !isValidUsername(username) ||
@@ -210,10 +214,29 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
       });
       return;
     }
+    if (!isValidInvitationCode(invitationCode)) {
+      response.status(400).json({ error: "Un code d'invitation valide est requis pour créer un compte club." });
+      return;
+    }
 
     try {
       const passwordHash = await hashPassword(password);
-      const user = await database.registerTeamUser(teamId, username, passwordHash);
+      const user = await database.registerTeamUser(
+        teamId,
+        username,
+        passwordHash,
+        getSha256Hash(invitationCode)
+      );
+      if (user === "registered") {
+        response.status(409).json({
+          error: "Ce club possède déjà un compte ou cet identifiant est déjà utilisé."
+        });
+        return;
+      }
+      if (!user) {
+        response.status(400).json({ error: "Code d'invitation invalide, expiré ou déjà utilisé." });
+        return;
+      }
       await startSession(user.id, response);
       response.status(201).json({ user: getSafeUser(user) });
     } catch (error) {
@@ -306,7 +329,7 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
   }));
 
   app.post("/api/auth/logout", asyncRoute(async (request, response) => {
-    if (request.sessionToken) await database.deleteSession(getTokenHash(request.sessionToken));
+    if (request.sessionToken) await database.deleteSession(getSha256Hash(request.sessionToken));
     clearSessionCookie(response);
     response.status(204).end();
   }));
@@ -353,6 +376,30 @@ export function createApp(database, { sessionSecret, cookieSecure = false, trust
 
   app.get("/api/admin/recovery-requests", requireAdmin, asyncRoute(async (_request, response) => {
     response.json({ requests: await database.listRecoveryRequests() });
+  }));
+
+  app.get("/api/admin/invitation-codes", requireAdmin, asyncRoute(async (_request, response) => {
+    response.json({ teams: await database.listTeamInvitationCodes() });
+  }));
+
+  app.post("/api/admin/teams/:id/invitation-code", requireAdmin, asyncRoute(async (request, response) => {
+    const teamId = Number(request.params.id);
+    if (!Number.isSafeInteger(teamId) || teamId < 1) {
+      response.status(400).json({ error: "Club invalide." });
+      return;
+    }
+
+    const code = randomBytes(32).toString("base64url");
+    const result = await database.createTeamInvitationCode(teamId, getSha256Hash(code));
+    if (result === "missing") {
+      response.status(404).json({ error: "Le club sélectionné n'existe pas." });
+      return;
+    }
+    if (result === "registered") {
+      response.status(409).json({ error: "Ce club possède déjà un compte." });
+      return;
+    }
+    response.status(201).json({ code });
   }));
 
   app.post("/api/admin/recovery-requests/:id/reset", requireAdmin, asyncRoute(async (request, response) => {

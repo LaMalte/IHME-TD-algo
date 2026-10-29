@@ -60,6 +60,12 @@ const schema = `
     CHECK ((role = 'admin' AND team_id IS NULL) OR (role = 'team' AND team_id IS NOT NULL))
   );
 
+  CREATE TABLE IF NOT EXISTS team_invitation_codes (
+    team_id INTEGER PRIMARY KEY REFERENCES teams(id) ON DELETE CASCADE,
+    code_hash CHAR(64) NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS administrative_point_adjustments (
     id SERIAL PRIMARY KEY,
     team_id INTEGER NOT NULL REFERENCES teams(id),
@@ -587,6 +593,46 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
       return result.rowCount === 1;
     },
 
+    async listTeamInvitationCodes() {
+      const [teamResult, accountResult, codeResult] = await Promise.all([
+        pool.query("SELECT id AS \"teamId\", name FROM teams ORDER BY name"),
+        pool.query("SELECT team_id AS \"teamId\" FROM users WHERE role = 'team'"),
+        pool.query("SELECT team_id AS \"teamId\" FROM team_invitation_codes")
+      ]);
+      const registeredTeamIds = new Set(accountResult.rows.map(({ teamId }) => teamId));
+      const codeTeamIds = new Set(codeResult.rows.map(({ teamId }) => teamId));
+      return teamResult.rows.map((team) => ({
+        ...team,
+        registered: registeredTeamIds.has(team.teamId),
+        hasInvitationCode: codeTeamIds.has(team.teamId)
+      }));
+    },
+
+    async createTeamInvitationCode(teamId, codeHash) {
+      return inTransaction(pool, async (client) => {
+        const team = await client.query(
+          "SELECT id FROM teams WHERE id = $1 FOR UPDATE",
+          [teamId]
+        );
+        if (!team.rows[0]) return "missing";
+
+        const account = await client.query(
+          "SELECT 1 FROM users WHERE team_id = $1 AND role = 'team'",
+          [teamId]
+        );
+        if (account.rows.length > 0) return "registered";
+
+        await client.query(`
+          INSERT INTO team_invitation_codes (team_id, code_hash, generated_at)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (team_id) DO UPDATE SET
+            code_hash = EXCLUDED.code_hash,
+            generated_at = EXCLUDED.generated_at
+        `, [teamId, codeHash, new Date()]);
+        return "created";
+      });
+    },
+
     async getAdminUsername() {
       const result = await pool.query("SELECT username FROM users WHERE role = 'admin' LIMIT 1");
       return result.rows[0]?.username;
@@ -614,14 +660,35 @@ export function createDatabase({ connectionString = process.env.DATABASE_URL, po
       });
     },
 
-    async registerTeamUser(teamId, username, passwordHash) {
-      const result = await pool.query(`
-        INSERT INTO users (username, password_hash, role, team_id)
-        VALUES ($1, $2, 'team', $3)
-        RETURNING id, username, role, team_id AS "teamId",
-          must_change_password AS "mustChangePassword"
-      `, [username, passwordHash, teamId]);
-      return result.rows[0];
+    async registerTeamUser(teamId, username, passwordHash, invitationCodeHash) {
+      return inTransaction(pool, async (client) => {
+        const team = await client.query(
+          "SELECT id FROM teams WHERE id = $1 FOR UPDATE",
+          [teamId]
+        );
+        if (!team.rows[0]) return null;
+
+        const account = await client.query(
+          "SELECT 1 FROM users WHERE team_id = $1 AND role = 'team'",
+          [teamId]
+        );
+        if (account.rows.length > 0) return "registered";
+
+        const invitation = await client.query(`
+          DELETE FROM team_invitation_codes
+          WHERE team_id = $1 AND code_hash = $2
+          RETURNING team_id
+        `, [teamId, invitationCodeHash]);
+        if (!invitation.rows[0]) return null;
+
+        const result = await client.query(`
+          INSERT INTO users (username, password_hash, role, team_id)
+          VALUES ($1, $2, 'team', $3)
+          RETURNING id, username, role, team_id AS "teamId",
+            must_change_password AS "mustChangePassword"
+        `, [username, passwordHash, teamId]);
+        return result.rows[0];
+      });
     },
 
     async hasTeam(id) {
